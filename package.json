@@ -15,18 +15,26 @@
       "name": "create-alarm",
       "title": "Create Alarm",
       "description": "Create a Clock Alarm ;)",
-      "mode": "no-view"
+      "mode": "view"
     },
     {
       "name": "remove-alarm",
       "title": "Remove Alarm",
       "description": "Remove an alarm from clock",
       "mode": "no-view"
+    },
+    {
+      "name": "stop-alarm",
+      "title": "Stop Alarm",
+      "description": "Stop active alarms",
+      "mode": "view"
     }
   ],
   "dependencies": {
     "@raycast/api": "^1.93.1",
-    "@raycast/utils": "^1.17.0"
+    "@raycast/utils": "^1.17.0",
+    "cron": "^4.1.0",
+    "raycast-notifier": "^0.1.1"
   },
   "devDependencies": {
     "@raycast/eslint-config": "^1.0.11",
