@@ -1,4 +1,4 @@
-import { Form, ActionPanel, Action, showToast, Toast, LocalStorage, Icon, popToRoot } from "@raycast/api"
+import { Form, ActionPanel, Action, showToast, Toast, LocalStorage, Icon } from "@raycast/api"
 import { useState, useEffect } from "react"
 import { spawn, ChildProcess } from 'child_process'
 import { CronJob, CronTime } from 'cron';
@@ -235,7 +235,6 @@ export default function CreateAlarm() {
         title: 'Scheduled!',
         message: alarmMessage,
       })
-      popToRoot({ clearSearchBar: true })
     } catch (error) {
       console.error(error)
       await showToast({
