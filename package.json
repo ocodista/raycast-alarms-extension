@@ -15,25 +15,20 @@
       "name": "create-alarm",
       "title": "Create Alarm",
       "description": "Create a Clock Alarm ;)",
-      "mode": "view"
+      "mode": "view",
+      "icon": "🔔"
     },
     {
-      "name": "remove-alarm",
-      "title": "Remove Alarm",
-      "description": "Remove an alarm from clock",
-      "mode": "no-view"
-    },
-    {
-      "name": "stop-alarm",
-      "title": "Stop Alarm",
-      "description": "Stop active alarms",
-      "mode": "view"
+      "name": "manage-alarms",
+      "title": "My Alarms",
+      "description": "View, edit and remove your scheduled alarms",
+      "mode": "view",
+      "icon": "🛠️"
     }
   ],
   "dependencies": {
     "@raycast/api": "^1.93.1",
     "@raycast/utils": "^1.17.0",
-    "cron": "^4.1.0",
     "raycast-notifier": "^0.1.1"
   },
   "devDependencies": {
@@ -50,6 +45,7 @@
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
     "prepublishOnly": "echo \"\\n\\nIt seems like you are trying to publish the Raycast extension to npm.\\n\\nIf you did intend to publish it to npm, remove the \\`prepublishOnly\\` script and rerun \\`npm publish\\` again.\\nIf you wanted to publish it to the Raycast Store instead, use \\`npm run publish\\` instead.\\n\\n\" && exit 1",
-    "publish": "npx @raycast/api@latest publish"
+    "publish": "npx @raycast/api@latest publish",
+    "postinstall": "echo 'Setting up Raycast Alarms...' && mkdir -p ~/.raycast-alarms/logs && (command -v jq >/dev/null 2>&1 || echo 'WARNING: jq is not installed. Please install it using brew install jq') && chmod +x ./assets/scripts/trigger-alarm.sh ./assets/scripts/manage-crontab.sh ./assets/scripts/install.sh && ./assets/scripts/install.sh"
   }
 }

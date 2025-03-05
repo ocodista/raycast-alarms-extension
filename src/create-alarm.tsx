@@ -1,309 +1,368 @@
-import { Form, ActionPanel, Action, showToast, Toast, LocalStorage, Icon } from "@raycast/api"
-import { useState, useEffect } from "react"
+import React, { useEffect, useState } from 'react'
+import { Action, ActionPanel, Form, showToast, Toast } from '@raycast/api'
+import fs from 'fs'
+import path from 'path'
 import { spawn, ChildProcess } from 'child_process'
-import { CronJob, CronTime } from 'cron';
-import { globalRaycastAlarms } from './shared-state';
+import os from 'os'
+import { closeMainWindow, showHUD } from "@raycast/api"
+import { Icon } from "@raycast/api"
 
 // Sound options and paths
-const DEFAULT_SOUND = 'Radial';
-const SOUNDS = {
-  'Alarm': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Alarm.m4r",
-  'Apex': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Apex.m4r",
-  'Ascending': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Ascending.m4r",
-  'Bell Tower': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Bell Tower.m4r",
-  'Chimes': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Chimes.m4r",
-  'Circuit': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Circuit.m4r",
-  'Constellation': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Constellation.m4r",
-  'Cosmic': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Cosmic.m4r",
-  'Crystals': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Crystals.m4r",
-  'Digital': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Digital.m4r",
-  'Radar': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Radar.m4r",
-  'Radial': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Radial-EncoreInfinitum.m4r",
-  'Radiate': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Radiate.m4r",
-  'Signal': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Signal.m4r",
-  'Silk': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Silk.m4r",
-  'Slow Rise': "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones/Slow Rise.m4r",
-};
+const DEFAULT_RINGTONE = "Radial.m4r"
+const RINGTONES_PATH = "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones"
+const SCRIPT_PATH = `${os.homedir()}/.raycast-alarms/scripts/manage-crontab.sh`
 
-// Convert hashtable to dropdown options
-const SOUND_OPTIONS = Object.entries(SOUNDS).map(([name, path]) => ({ name, path }));
-
-interface FormValues {
-  scheduledTime: Date
-  title?: string
-  sound: string
-}
-
-interface AlarmInfo {
+export interface AlarmInfo {
   id: string
-  name: string
+  title: string
   time: string
-  jobId: CronTime
+  sound: string
   cronExpression: string
-  soundPath: string
+  seconds?: number
 }
 
-// Store active jobs in memory
-const activeJobs = new Map<string, CronJob>()
-// Store active sound processes
-const activeSoundProcesses = new Map<string, ChildProcess>()
-// Store preview sound process
+// Format time function with seconds
+const formatTime = (date: Date): string => {
+  return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
+}
+
+// Get full path to ringtone
+const getRingtonePath = (ringtoneName: string): string => {
+  // Special case for Radial which has a different filename
+  if (ringtoneName === "Radial.m4r") {
+    return path.join(RINGTONES_PATH, "Radial-EncoreInfinitum.m4r")
+  }
+  return path.join(RINGTONES_PATH, ringtoneName)
+}
+
+// Available ringtones
+const ringtones = [
+  { name: "Apex", value: "Apex.m4r" },
+  { name: "Beacon", value: "Beacon.m4r" },
+  { name: "Bulletin", value: "Bulletin.m4r" },
+  { name: "By The Seaside", value: "By_The_Seaside.m4r" },
+  { name: "Chimes", value: "Chimes.m4r" },
+  { name: "Circuit", value: "Circuit.m4r" },
+  { name: "Constellation", value: "Constellation.m4r" },
+  { name: "Cosmic", value: "Cosmic.m4r" },
+  { name: "Crystals", value: "Crystals.m4r" },
+  { name: "Hillside", value: "Hillside.m4r" },
+  { name: "Illuminate", value: "Illuminate.m4r" },
+  { name: "Night Owl", value: "Night_Owl.m4r" },
+  { name: "Opening", value: "Opening.m4r" },
+  { name: "Playtime", value: "Playtime.m4r" },
+  { name: "Presto", value: "Presto.m4r" },
+  { name: "Radar", value: "Radar.m4r" },
+  { name: "Radial", value: "Radial.m4r" },
+  { name: "Ripples", value: "Ripples.m4r" },
+  { name: "Sencha", value: "Sencha.m4r" },
+  { name: "Signal", value: "Signal.m4r" },
+  { name: "Silk", value: "Silk.m4r" },
+  { name: "Slow Rise", value: "Slow_Rise.m4r" },
+  { name: "Stargaze", value: "Stargaze.m4r" },
+  { name: "Summit", value: "Summit.m4r" },
+  { name: "Twinkle", value: "Twinkle.m4r" },
+  { name: "Uplift", value: "Uplift.m4r" },
+  { name: "Waves", value: "Waves.m4r" },
+]
+
+// Track preview sound
 let previewSoundProcess: ChildProcess | null = null
 
-// Function to stop a specific alarm
-export const stopAlarm = (alarmId: string) => {
-  const process = activeSoundProcesses.get(alarmId);
-  if (process && !process.killed) {
-    process.kill();
-    activeSoundProcesses.delete(alarmId);
-    globalRaycastAlarms.activeSoundProcesses.delete(alarmId);
-    return true;
-  }
-  return false;
+const execCommand = async (command: string, args: string[]): Promise<{ stdout: string; stderr: string; code: number }> => {
+  return new Promise((resolve) => {
+    // Only log critical commands (add, remove, stop)
+    const shouldLog = command.includes('add') || command.includes('remove') || command.includes('stop');
+
+    if (shouldLog) {
+      console.log(`Executing: ${command} ${args.join(' ')}`);
+    }
+
+    // Execute the command directly without shell -c wrapper
+    const child = spawn(command, args);
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        console.error(`Command failed with code ${code}`);
+        console.error(`stderr: ${stderr}`);
+      }
+      resolve({ stdout, stderr, code: code || 0 });
+    });
+  });
 };
 
-// Function to stop all alarms
-export const stopAllAlarms = () => {
-  let stoppedCount = 0;
-  for (const [alarmId, process] of activeSoundProcesses.entries()) {
-    if (process && !process.killed) {
-      process.kill();
-      stoppedCount++;
-    }
-    activeSoundProcesses.delete(alarmId);
-    globalRaycastAlarms.activeSoundProcesses.delete(alarmId);
+// Function to stop a specific alarm
+export const stopAlarm = async (alarmId: string): Promise<boolean> => {
+  try {
+    await execCommand(`"${SCRIPT_PATH}"`, ['stop', alarmId])
+    return true
+  } catch (error) {
+    console.error(`Error stopping alarm: ${error}`)
+    return false
   }
-  return stoppedCount;
-};
+}
+
+// Function to stop all active alarms
+export const stopAllAlarms = async (): Promise<number> => {
+  try {
+    const result = await execCommand(`"${SCRIPT_PATH}"`, ['stop-all'])
+    const match = result.stdout.match(/^Stopped (\d+) alarm\(s\)$/)
+    return match ? parseInt(match[1], 10) : 0
+  } catch (error) {
+    console.error(`Error stopping all alarms: ${error}`)
+    return 0
+  }
+}
+
+// Function to get the list of scheduled alarms
+export const getScheduledAlarms = async (): Promise<AlarmInfo[]> => {
+  try {
+    const result = await execCommand(`"${SCRIPT_PATH}"`, ['list'])
+
+    // Handle empty or whitespace-only results
+    if (!result || result.stdout.trim() === '') {
+      console.log('Empty result from list command, returning empty array')
+      return []
+    }
+
+    try {
+      return JSON.parse(result.stdout)
+    } catch (jsonError) {
+      console.error(`JSON parse error: ${jsonError}`)
+      console.error(`Raw result: "${result.stdout}"`)
+      return []
+    }
+  } catch (error) {
+    console.error(`Error getting scheduled alarms: ${error}`)
+    return []
+  }
+}
 
 export default function CreateAlarm() {
-  const [isLoading, setIsLoading] = useState<boolean>(false)
-  const [selectedSound, setSelectedSound] = useState<string>(SOUNDS[DEFAULT_SOUND])
-  const [isPlaying, setIsPlaying] = useState<boolean>(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [title, setTitle] = useState("")
+  const [scheduledTime, setScheduledTime] = useState<Date>(new Date())
+  const [selectedRingtone, setSelectedRingtone] = useState(DEFAULT_RINGTONE)
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
+  const defaultRingtone = DEFAULT_RINGTONE
+  const [minDate, setMinDate] = useState<Date>(() => {
+    // Set minimum date to 1 minute from now
+    const now = new Date()
+    now.setMinutes(now.getMinutes() + 1)
+    now.setSeconds(0)
+    now.setMilliseconds(0)
+    return now
+  })
 
-  // Function to toggle sound preview
-  const togglePreview = () => {
-    if (isPlaying) {
-      stopPreview();
-    } else {
-      startPreview();
-    }
-  }
-
-  // Function to start sound preview
-  const startPreview = () => {
-    try {
-      previewSoundProcess = spawn('afplay', [selectedSound], { detached: false })
-      setIsPlaying(true)
-
-      previewSoundProcess.on('exit', () => {
-        setIsPlaying(false)
-        previewSoundProcess = null
-      })
-    } catch (error) {
-      console.error(`Error previewing sound: ${error}`)
-      setIsPlaying(false)
-    }
-  }
-
-  // Function to stop sound preview
-  const stopPreview = () => {
-    if (previewSoundProcess && !previewSoundProcess.killed) {
-      previewSoundProcess.kill()
-      previewSoundProcess = null
-    }
-    setIsPlaying(false)
-  }
-
-  async function handleSubmit(values: FormValues) {
-    setIsLoading(true)
-
-    try {
-      // Stop any preview that's playing
-      stopPreview();
-
-      // Format the date for crontab
-      const time = values.scheduledTime
-
-      // Ensure we have seconds (since DatePicker UI doesn't show seconds)
-      // This will set the time to include the current seconds if they're not explicitly selected
+  // Update minDate every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
       const now = new Date()
-      if (time.getSeconds() === 0 && now.getMinutes() === time.getMinutes() && now.getHours() === time.getHours()) {
-        time.setSeconds(now.getSeconds())
+      now.setMinutes(now.getMinutes() + 1)
+      now.setSeconds(0)
+      now.setMilliseconds(0)
+      setMinDate(now)
+
+      // If the current selected time is now in the past, update it
+      if (scheduledTime < now) {
+        setScheduledTime(now)
+      }
+    }, 60000)
+
+    return () => clearInterval(interval)
+  }, [scheduledTime])
+
+  const handleCreateAlarm = async () => {
+    stopPreview()
+
+    if (!scheduledTime) {
+      showToast({
+        style: Toast.Style.Failure,
+        title: "Missing Time",
+        message: "Please select a time for your alarm",
+      })
+      return
+    }
+
+    setIsLoading(true);
+
+    try {
+      const scriptPath = `${os.homedir()}/.raycast-alarms/scripts/manage-crontab.sh`;
+
+      // Check if script exists
+      try {
+        await fs.promises.access(scriptPath, fs.constants.X_OK);
+      } catch (error) {
+        throw new Error(`Script not found or not executable: ${scriptPath}`);
       }
 
-      const minutes = time.getMinutes()
-      const hours = time.getHours()
-      const seconds = time.getSeconds()
-      const soundFile = values.sound
-      const formattedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-      const alarmMessage = (values.title || `Wake up`) + ` at ${formattedTime}`
-
-      // Create a unique identifier for this alarm
       const alarmId = `raycast_alarm_${Date.now()}`
+      const soundPath = getRingtonePath(selectedRingtone)
+      const hours = scheduledTime.getHours()
+      const minutes = scheduledTime.getMinutes()
+      const seconds = scheduledTime.getSeconds()
 
-      // Create cron job using node-crontab
-      const cronExpression = `${seconds} ${minutes} ${hours} * * *`
+      // Use a default title if none is provided
+      const alarmTitle = title.trim() || "Raycast Alarm"
 
-      // TODO: Migrate this to crontab as it needs to work even if Raycast is closed
-      const job = CronJob.from({
-        cronTime: cronExpression,
-        onTick: async function () {
-          try {
-            // Play the sound directly using spawn to get a reference to the process
-            const soundProcess = spawn('afplay', [soundFile], { detached: false })
+      // Important: Pass arguments separately to ensure proper escaping
+      const { code, stderr } = await execCommand(
+        scriptPath,
+        ['add', alarmId, alarmTitle, hours.toString(), minutes.toString(), seconds.toString(), soundPath]
+      )
 
-            // Store the sound process for later termination
-            activeSoundProcesses.set(alarmId, soundProcess)
-            globalRaycastAlarms.activeSoundProcesses.set(alarmId, soundProcess)
+      if (code !== 0) {
+        throw new Error(`Failed to create alarm: ${stderr}`);
+      }
 
-            console.log(`Playing sound ${soundFile} with process ID: ${soundProcess.pid}`)
-
-            // Show alarm notification using Raycast Toast
-            await showToast({
-              style: Toast.Style.Success,
-              title: "Time's up! ⏰",
-              message: alarmMessage,
-
-              primaryAction: {
-                title: "Stop",
-                onAction: () => {
-                  const process = activeSoundProcesses.get(alarmId)
-                  if (process && !process.killed) {
-                    process.kill()
-                    console.log(`Stopped sound process with PID: ${process.pid}`)
-                    activeSoundProcesses.delete(alarmId)
-                    globalRaycastAlarms.activeSoundProcesses.delete(alarmId)
-
-                    showToast({
-                      style: Toast.Style.Success,
-                      title: "Silenced",
-                      message: alarmMessage
-                    })
-                  }
-                },
-              },
-            })
-
-            // Set up a timeout to automatically stop the sound after 60 seconds if not stopped manually
-            setTimeout(() => {
-              const process = activeSoundProcesses.get(alarmId)
-              if (process && !process.killed) {
-                process.kill()
-                console.log(`Auto-stopped sound process with PID: ${process.pid} after 60 seconds`)
-                activeSoundProcesses.delete(alarmId)
-                globalRaycastAlarms.activeSoundProcesses.delete(alarmId)
-              }
-            }, 60000)
-          } catch (error) {
-            console.error(`Error executing alarm: ${error}`)
-            await showToast({
-              style: Toast.Style.Failure,
-              title: "Failed to play sound",
-              message: String(error)
-            })
-          }
-        },
-        start: true,
+      showToast({
+        style: Toast.Style.Success,
+        title: "Alarm Set Successfully",
+        message: `Your alarm will ring at ${formatTime(scheduledTime)}`,
       });
 
-      // Store job in memory for later access
-      activeJobs.set(alarmId, job)
+      // Reset form
+      setTitle("");
+      setScheduledTime(new Date());
+      setSelectedRingtone(defaultRingtone);
 
-      // Store alarm information in local storage
-      const timeString = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-
-      const alarmInfo: AlarmInfo = {
-        id: alarmId,
-        name: alarmMessage,
-        time: timeString,
-        jobId: job.cronTime,
-        cronExpression,
-        soundPath: soundFile
-      }
-
-      // Get existing alarms or initialize empty array
-      const existingAlarmsJson = await LocalStorage.getItem('raycast-alarms')
-      const existingAlarms: AlarmInfo[] = existingAlarmsJson ? JSON.parse(existingAlarmsJson as string) : []
-
-      // Add new alarm and save back to storage
-      existingAlarms.push(alarmInfo)
-      await LocalStorage.setItem('raycast-alarms', JSON.stringify(existingAlarms))
-
-      await showToast({
-        style: Toast.Style.Success,
-        title: 'Scheduled!',
-        message: alarmMessage,
-      })
+      // Navigate to list
+      await closeMainWindow();
+      await showHUD("Alarm set for " + formatTime(scheduledTime), {});
     } catch (error) {
-      console.error(error)
-      await showToast({
+      console.error("Error creating alarm:", error);
+      showToast({
         style: Toast.Style.Failure,
-        title: 'Something went wrong',
+        title: "Could Not Create Alarm",
         message: String(error),
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Only ensure the script directory exists, don't do anything that could trigger an alarm
+    const initializeDirectory = async () => {
+      try {
+        // Just check if directory exists, create if needed
+        await fs.promises.mkdir(path.dirname(SCRIPT_PATH), { recursive: true });
+      } catch (error) {
+        console.error(`Error initializing directory: ${error}`);
+      }
+    };
+
+    initializeDirectory();
+
+    // Cleanup on unmount
+    return () => {
+      if (previewSoundProcess) {
+        previewSoundProcess.kill();
+        previewSoundProcess = null;
+      }
+    };
+  }, []);
+
+  function previewSound(sound: string) {
+    // First stop any currently playing preview
+    stopPreview()
+
+    // Then start the new preview
+    const soundPath = getRingtonePath(sound)
+    previewSoundProcess = spawn('afplay', [soundPath])
+    setIsPreviewPlaying(true)
+  }
+
+  function stopPreview() {
+    if (previewSoundProcess) {
+      previewSoundProcess.kill()
+      previewSoundProcess = null
+      setIsPreviewPlaying(false)
     }
   }
 
-  useEffect(() => {
-    setIsLoading(false);
-
-    // Stop preview on unmount
-    return () => {
-      console.log("unmounting")
-      stopPreview();
+  function toggleSoundPreview() {
+    if (isPreviewPlaying) {
+      stopPreview()
+    } else {
+      previewSound(selectedRingtone)
     }
-  }, []);
+  }
 
   return (
     <Form
-      isLoading={isLoading}
       actions={
         <ActionPanel>
-          <Action.SubmitForm title="Schedule" icon={Icon.Alarm} onSubmit={handleSubmit} />
+          <Action.SubmitForm
+            title="Create Alarm"
+            onSubmit={handleCreateAlarm}
+            icon={Icon.Clock}
+          />
           <Action
-            title={isPlaying ? "Stop Preview" : "Preview Sound"}
-            icon={isPlaying ? Icon.Stop : Icon.Play}
-            onAction={togglePreview}
+            title={isPreviewPlaying ? "Stop Preview" : "Preview Sound"}
+            onAction={toggleSoundPreview}
+            icon={isPreviewPlaying ? Icon.Stop : Icon.Play}
             shortcut={{ modifiers: ["cmd"], key: "s" }}
           />
         </ActionPanel>
       }
+      isLoading={isLoading}
     >
+
       <Form.DatePicker
-        id="scheduledTime"
-        title="When to ring"
+        id="time"
+        title="When should it ring?"
         type={Form.DatePicker.Type.DateTime}
-        defaultValue={new Date()}
-        min={new Date()}
-        autoFocus
+        value={scheduledTime}
+        onChange={(newValue) => newValue && setScheduledTime(newValue)}
+        min={minDate}
       />
+
       <Form.TextField
         id="title"
         title="Title"
-        placeholder="Set a title for your reminder"
+        placeholder="What's this alarm for? (optional)"
+        value={title}
+        onChange={setTitle}
       />
+
+      <Form.Separator />
+
       <Form.Dropdown
         id="sound"
-        title="Sound"
-        defaultValue={SOUNDS[DEFAULT_SOUND]}
-        onChange={setSelectedSound}
-        info="Choose a sound for your reminder"
+        title="Alarm Sound"
+        value={selectedRingtone}
+        onChange={(newValue) => {
+          // Only preview if actually changing the sound
+          if (newValue !== selectedRingtone) {
+            previewSound(newValue)
+          }
+          setSelectedRingtone(newValue)
+        }}
       >
-        {SOUND_OPTIONS.map((sound) => (
-          <Form.Dropdown.Item
-            key={sound.path}
-            value={sound.path}
-            title={sound.name}
-          />
-        ))}
+        <Form.Dropdown.Section title="System Sounds">
+          {ringtones.map((ringtone) => (
+            <Form.Dropdown.Item
+              key={ringtone.value}
+              value={ringtone.value}
+              title={ringtone.name}
+            />
+          ))}
+        </Form.Dropdown.Section>
       </Form.Dropdown>
       <Form.Description
-        title="Shortcut"
-        text={`Press (⌘ + S) to ${isPlaying ? 'stop' : 'start'} the preview sound`}
+        text="Preview sounds with (⌘ + S)"
       />
     </Form>
-  )
+  );
 } 
