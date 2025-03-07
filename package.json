@@ -1,6 +1,6 @@
 {
   "$schema": "https://www.raycast.com/schemas/extension.json",
-  "name": "alarms",
+  "name": "Alarms",
   "title": "Alarms",
   "description": "Create scheduled alarms",
   "icon": "extension-icon.png",
@@ -15,7 +15,7 @@
       "name": "create-alarm",
       "title": "Create Alarm",
       "subtitle": "Schedule a new alarm",
-      "description": "Create a new alarm that will play a sound at the specified time",
+      "description": "Alarms - Create a new alarm that will play a sound at the specified time",
       "mode": "view",
       "icon": "create-alarm.png"
     },
@@ -23,7 +23,7 @@
       "name": "manage-alarms",
       "title": "My Alarms",
       "subtitle": "View and manage alarms",
-      "description": "View, edit, or delete your scheduled alarms",
+      "description": "Alarms - View, edit, or delete your scheduled alarms",
       "mode": "view",
       "icon": "list-alarms.png"
     }
