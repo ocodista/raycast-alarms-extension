@@ -11,7 +11,7 @@ declare module "node-crontab" {
     cronTime: string,
     command: string,
     args?: Array<string>,
-    options?: { comment?: string },
+    options?: { comment?: string }
   ): number | null;
 
   /**

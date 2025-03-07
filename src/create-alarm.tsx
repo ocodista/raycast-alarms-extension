@@ -1,15 +1,14 @@
-import React, { useEffect, useState } from "react";
-import { Action, ActionPanel, Form, showToast, Toast, popToRoot } from "@raycast/api";
-import fs from "fs";
-import path from "path";
-import { spawn, ChildProcess } from "child_process";
+import React from "react";
+import { Action, ActionPanel, Form, Icon, showToast, Toast, popToRoot } from "@raycast/api";
+import { useState, useEffect } from "react";
+import { spawn } from "child_process";
 import os from "os";
-import { Icon } from "@raycast/api";
 import { initializeExtension } from "./utils/initialize";
+import path from "path";
+import fs from "fs";
 
 // Sound options and paths
-const DEFAULT_RINGTONE = "Radial.m4r";
-const RINGTONES_PATH = "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones";
+const DEFAULT_RINGTONE = "/System/Library/Sounds/Sosumi.aiff";
 const SCRIPT_PATH = `${os.homedir()}/.raycast-alarms/scripts/manage-crontab.sh`;
 const LOG_PATH = `${os.homedir()}/.raycast-alarms/logs/extension.log`;
 
@@ -40,55 +39,43 @@ export interface AlarmInfo {
 
 // Format time function with seconds
 const formatTime = (date: Date): string => {
-  return `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
+  return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 };
 
 // Get full path to ringtone
 const getRingtonePath = (ringtoneName: string): string => {
-  // Special case for Radial which has a different filename
-  if (ringtoneName === "Radial.m4r") {
-    return path.join(RINGTONES_PATH, "Radial-EncoreInfinitum.m4r");
+  // If it's already a path, return it
+  if (ringtoneName.startsWith("/")) {
+    return ringtoneName;
   }
-  return path.join(RINGTONES_PATH, ringtoneName);
+
+  // Otherwise, try to find it in the ringtones list
+  const ringtone = ringtones.find((r) => r.name === ringtoneName);
+  return ringtone ? ringtone.value : DEFAULT_RINGTONE;
 };
 
 // Available ringtones
 const ringtones = [
-  { name: "Apex", value: "Apex.m4r" },
-  { name: "Beacon", value: "Beacon.m4r" },
-  { name: "Bulletin", value: "Bulletin.m4r" },
-  { name: "By The Seaside", value: "By_The_Seaside.m4r" },
-  { name: "Chimes", value: "Chimes.m4r" },
-  { name: "Circuit", value: "Circuit.m4r" },
-  { name: "Constellation", value: "Constellation.m4r" },
-  { name: "Cosmic", value: "Cosmic.m4r" },
-  { name: "Crystals", value: "Crystals.m4r" },
-  { name: "Hillside", value: "Hillside.m4r" },
-  { name: "Illuminate", value: "Illuminate.m4r" },
-  { name: "Night Owl", value: "Night_Owl.m4r" },
-  { name: "Opening", value: "Opening.m4r" },
-  { name: "Playtime", value: "Playtime.m4r" },
-  { name: "Presto", value: "Presto.m4r" },
-  { name: "Radar", value: "Radar.m4r" },
-  { name: "Radial", value: "Radial.m4r" },
-  { name: "Ripples", value: "Ripples.m4r" },
-  { name: "Sencha", value: "Sencha.m4r" },
-  { name: "Signal", value: "Signal.m4r" },
-  { name: "Silk", value: "Silk.m4r" },
-  { name: "Slow Rise", value: "Slow_Rise.m4r" },
-  { name: "Stargaze", value: "Stargaze.m4r" },
-  { name: "Summit", value: "Summit.m4r" },
-  { name: "Twinkle", value: "Twinkle.m4r" },
-  { name: "Uplift", value: "Uplift.m4r" },
-  { name: "Waves", value: "Waves.m4r" },
+  { name: "Sosumi", value: "/System/Library/Sounds/Sosumi.aiff" },
+  { name: "Submarine", value: "/System/Library/Sounds/Submarine.aiff" },
+  { name: "Tink", value: "/System/Library/Sounds/Tink.aiff" },
+  { name: "Bottle", value: "/System/Library/Sounds/Bottle.aiff" },
+  { name: "Frog", value: "/System/Library/Sounds/Frog.aiff" },
+  { name: "Funk", value: "/System/Library/Sounds/Funk.aiff" },
+  { name: "Glass", value: "/System/Library/Sounds/Glass.aiff" },
+  { name: "Hero", value: "/System/Library/Sounds/Hero.aiff" },
+  { name: "Morse", value: "/System/Library/Sounds/Morse.aiff" },
+  { name: "Ping", value: "/System/Library/Sounds/Ping.aiff" },
+  { name: "Pop", value: "/System/Library/Sounds/Pop.aiff" },
+  { name: "Purr", value: "/System/Library/Sounds/Purr.aiff" },
 ];
 
 // Track preview sound
-let previewSoundProcess: ChildProcess | null = null;
+let previewSoundProcess: ReturnType<typeof spawn> | null = null;
 
 const execCommand = async (
   command: string,
-  args: string[],
+  args: string[]
 ): Promise<{ stdout: string; stderr: string; code: number }> => {
   return new Promise((resolve) => {
     // Only log critical commands (add, remove, stop)
@@ -176,7 +163,7 @@ export default function CreateAlarm() {
   const [alarmTitle, setAlarmTitle] = useState<string>("");
 
   useEffect(() => {
-    initializeExtension().catch(error => {
+    initializeExtension().catch((error) => {
       console.error("Initialization error:", error);
     });
   }, []);
@@ -311,58 +298,57 @@ export default function CreateAlarm() {
     <Form
       actions={
         <ActionPanel>
-          <Action.SubmitForm title="Create Alarm" onSubmit={handleCreateAlarm} icon={Icon.Clock} />
-          <Action
-            title={isPreviewPlaying ? "Stop Preview" : "Preview Sound"}
-            onAction={toggleSoundPreview}
-            icon={isPreviewPlaying ? Icon.Stop : Icon.Play}
-            shortcut={{ modifiers: ["cmd"], key: "s" }}
-          />
+          <ActionPanel.Section>
+            <Action.SubmitForm title="Create Alarm" onSubmit={handleCreateAlarm} icon={Icon.Clock} />
+          </ActionPanel.Section>
+          <ActionPanel.Section>
+            <Action
+              title={isPreviewPlaying ? "Stop Preview" : "Preview Sound"}
+              onAction={toggleSoundPreview}
+              icon={isPreviewPlaying ? Icon.Stop : Icon.Play}
+              shortcut={{ modifiers: ["cmd"], key: "s" }}
+            />
+          </ActionPanel.Section>
         </ActionPanel>
       }
       isLoading={isLoading}
     >
-      <Form.DatePicker
-        id="time"
-        title="When should it ring?"
-        type={Form.DatePicker.Type.DateTime}
-        value={scheduledTime}
-        onChange={(newValue) => {
-          if (newValue) {
-            // Force seconds to 0 when user picks a time
-            newValue.setSeconds(0);
-            newValue.setMilliseconds(0);
-            setScheduledTime(newValue);
-          }
-        }}
-        min={minDate}
-      />
+      <Form.Description text="Schedule an alarm that will play a sound at the specified time, even if Raycast is closed." />
 
       <Form.TextField
         id="title"
         title="Title"
-        placeholder="What's this alarm for? (optional)"
+        placeholder="Enter alarm title (optional)"
         value={alarmTitle}
         onChange={setAlarmTitle}
       />
 
+      <Form.DatePicker
+        id="date"
+        title="Date & Time"
+        value={scheduledTime ?? undefined}
+        onChange={setScheduledTime}
+        min={minDate}
+      />
+
       <Form.Separator />
 
-      <Form.Dropdown
-        id="sound"
-        title="Alarm Sound"
-        value={selectedRingtone}
-        onChange={(newValue) => {
-          setSelectedRingtone(newValue);
-        }}
-      >
+      <Form.Dropdown id="sound" title="Alarm Sound" value={selectedRingtone} onChange={setSelectedRingtone}>
         <Form.Dropdown.Section title="System Sounds">
           {ringtones.map((ringtone) => (
             <Form.Dropdown.Item key={ringtone.value} value={ringtone.value} title={ringtone.name} />
           ))}
         </Form.Dropdown.Section>
       </Form.Dropdown>
-      <Form.Description text="Preview sounds with (⌘ + S)" />
+
+      <Form.Separator />
+
+      <Form.Description
+        title="How it works"
+        text="This alarm uses macOS crontab to trigger at the specified time, even if Raycast isn't running. The alarm sound will play until you dismiss it or until 10 minutes have passed."
+      />
+
+      {isPreviewPlaying && <Form.Description text="Sound preview is playing..." />}
     </Form>
   );
 }

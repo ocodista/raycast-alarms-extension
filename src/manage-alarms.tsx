@@ -1,10 +1,11 @@
+import React from "react";
 import { List, ActionPanel, Action, Icon, showToast, Toast } from "@raycast/api";
 import { useCallback, useState, useEffect } from "react";
 import { spawn } from "child_process";
 import os from "os";
 import { open } from "@raycast/api";
 import fs from "fs";
-import { initializeExtension } from "./utils/initialize"
+import { initializeExtension } from "./utils/initialize";
 
 // Path to the manage-crontab.sh script
 const SCRIPT_PATH = `${os.homedir()}/.raycast-alarms/scripts/manage-crontab.sh`;
@@ -33,7 +34,7 @@ const formatTime = (timeString: string): string => {
 // Execute command function
 const execCommand = async (
   command: string,
-  args: string[],
+  args: string[]
 ): Promise<{ stdout: string; stderr: string; code: number }> => {
   return new Promise((resolve) => {
     // Check if the script exists and is executable
@@ -146,10 +147,10 @@ export default function ListAlarms() {
 
   useEffect(() => {
     // Initialize extension when component mounts
-    initializeExtension().catch(error => {
-      console.error("Initialization error:", error)
-    })
-  }, [])
+    initializeExtension().catch((error) => {
+      console.error("Initialization error:", error);
+    });
+  }, []);
 
   const fetchAlarms = useCallback(async () => {
     setIsLoading(true);
@@ -195,7 +196,7 @@ export default function ListAlarms() {
         });
       }
     },
-    [fetchAlarms],
+    [fetchAlarms]
   );
 
   const handleStopAllAlarms = useCallback(async () => {
