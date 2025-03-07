@@ -1,59 +1,63 @@
-import { List, ActionPanel, Action, Icon, showToast, Toast } from '@raycast/api'
-import { useCallback, useState, useEffect } from 'react'
-import { spawn } from 'child_process'
-import os from 'os'
-import { open } from '@raycast/api'
-import fs from 'fs'
+import { List, ActionPanel, Action, Icon, showToast, Toast } from "@raycast/api";
+import { useCallback, useState, useEffect } from "react";
+import { spawn } from "child_process";
+import os from "os";
+import { open } from "@raycast/api";
+import fs from "fs";
+import { initializeExtension } from "./utils/initialize"
 
 // Path to the manage-crontab.sh script
-const SCRIPT_PATH = `${os.homedir()}/.raycast-alarms/scripts/manage-crontab.sh`
+const SCRIPT_PATH = `${os.homedir()}/.raycast-alarms/scripts/manage-crontab.sh`;
 
 interface AlarmInfo {
-  id: string
-  title: string
-  time: string
-  sound: string
-  cronExpression?: string
-  name?: string // For compatibility
+  id: string;
+  title: string;
+  time: string;
+  sound: string;
+  cronExpression?: string;
+  name?: string; // For compatibility
 }
 
 // Format time to show only hours:minutes (not seconds)
 const formatTime = (timeString: string): string => {
   // If time contains seconds (HH:MM:SS), remove the seconds part
-  if (timeString && timeString.includes(':')) {
-    const parts = timeString.split(':')
+  if (timeString && timeString.includes(":")) {
+    const parts = timeString.split(":");
     if (parts.length >= 2) {
-      return `${parts[0]}:${parts[1]}`
+      return `${parts[0]}:${parts[1]}`;
     }
   }
-  return timeString
-}
+  return timeString;
+};
 
 // Execute command function
-const execCommand = async (command: string, args: string[]): Promise<{ stdout: string; stderr: string; code: number }> => {
+const execCommand = async (
+  command: string,
+  args: string[],
+): Promise<{ stdout: string; stderr: string; code: number }> => {
   return new Promise((resolve) => {
     // Check if the script exists and is executable
     try {
       fs.accessSync(command, fs.constants.X_OK);
     } catch (error) {
       console.error(`Script not found or not executable: ${command}`);
-      return resolve({ stdout: '', stderr: `Script not found or not executable: ${command}`, code: 1 });
+      return resolve({ stdout: "", stderr: `Script not found or not executable: ${command}`, code: 1 });
     }
 
     // Execute the command directly
     const child = spawn(command, args);
-    let stdout = '';
-    let stderr = '';
+    let stdout = "";
+    let stderr = "";
 
-    child.stdout.on('data', (data) => {
+    child.stdout.on("data", (data) => {
       stdout += data.toString();
     });
 
-    child.stderr.on('data', (data) => {
+    child.stderr.on("data", (data) => {
       stderr += data.toString();
     });
 
-    child.on('close', (code) => {
+    child.on("close", (code) => {
       if (code !== 0) {
         console.error(`Command failed with code ${code}`);
         console.error(`stderr: ${stderr}`);
@@ -75,7 +79,7 @@ const getScheduledAlarms = async (): Promise<AlarmInfo[]> => {
     }
 
     // Execute the command
-    const { stdout, code, stderr } = await execCommand(SCRIPT_PATH, ['list']);
+    const { stdout, code, stderr } = await execCommand(SCRIPT_PATH, ["list"]);
     if (code !== 0) {
       console.error(`Error getting scheduled alarms: ${stderr}`);
       return [];
@@ -99,7 +103,7 @@ const stopAllAlarms = async (): Promise<number> => {
     }
 
     // Execute the command
-    const { stdout, code, stderr } = await execCommand(SCRIPT_PATH, ['stop-all']);
+    const { stdout, code, stderr } = await execCommand(SCRIPT_PATH, ["stop-all"]);
     if (code !== 0) {
       console.error(`Error stopping all alarms: ${stderr}`);
       return 0;
@@ -124,7 +128,7 @@ const removeScheduledAlarm = async (alarmId: string): Promise<boolean> => {
     }
 
     // Execute the command
-    const { code, stderr } = await execCommand(SCRIPT_PATH, ['remove', alarmId]);
+    const { code, stderr } = await execCommand(SCRIPT_PATH, ["remove", alarmId]);
     if (code !== 0) {
       console.error(`Error removing alarm: ${stderr}`);
       return false;
@@ -137,81 +141,91 @@ const removeScheduledAlarm = async (alarmId: string): Promise<boolean> => {
 };
 
 export default function ListAlarms() {
-  const [alarms, setAlarms] = useState<AlarmInfo[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [alarms, setAlarms] = useState<AlarmInfo[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Initialize extension when component mounts
+    initializeExtension().catch(error => {
+      console.error("Initialization error:", error)
+    })
+  }, [])
 
   const fetchAlarms = useCallback(async () => {
-    setIsLoading(true)
+    setIsLoading(true);
     try {
-      const fetchedAlarms = await getScheduledAlarms()
-      setAlarms(fetchedAlarms)
+      const fetchedAlarms = await getScheduledAlarms();
+      setAlarms(fetchedAlarms);
     } catch (error) {
-      console.error('Error fetching alarms:', error)
+      console.error("Error fetching alarms:", error);
       showToast({
         style: Toast.Style.Failure,
-        title: 'Failed to Load Alarms',
+        title: "Failed to Load Alarms",
         message: String(error),
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }, [])
+  }, []);
 
   // Load alarms on mount
   useEffect(() => {
-    fetchAlarms()
-  }, [fetchAlarms])
+    fetchAlarms();
+  }, [fetchAlarms]);
 
-  const handleRemoveAlarm = useCallback(async (alarmId: string, alarmTitle: string) => {
-    try {
-      showToast({ style: Toast.Style.Animated, title: `Removing alarm "${alarmTitle}"...` })
+  const handleRemoveAlarm = useCallback(
+    async (alarmId: string, alarmTitle: string) => {
+      try {
+        showToast({ style: Toast.Style.Animated, title: `Removing alarm "${alarmTitle}"...` });
 
-      const success = await removeScheduledAlarm(alarmId)
+        const success = await removeScheduledAlarm(alarmId);
 
-      if (success) {
-        showToast({ style: Toast.Style.Success, title: `Removed alarm "${alarmTitle}"` })
-        fetchAlarms()
-      } else {
-        showToast({ style: Toast.Style.Failure, title: `Failed to remove alarm` })
+        if (success) {
+          showToast({ style: Toast.Style.Success, title: `Removed alarm "${alarmTitle}"` });
+          fetchAlarms();
+        } else {
+          showToast({ style: Toast.Style.Failure, title: `Failed to remove alarm` });
+        }
+      } catch (error) {
+        console.error("Error removing alarm:", error);
+        showToast({
+          style: Toast.Style.Failure,
+          title: "Failed to Remove Alarm",
+          message: String(error),
+        });
       }
-    } catch (error) {
-      console.error('Error removing alarm:', error)
-      showToast({
-        style: Toast.Style.Failure,
-        title: 'Failed to Remove Alarm',
-        message: String(error),
-      })
-    }
-  }, [fetchAlarms])
+    },
+    [fetchAlarms],
+  );
 
   const handleStopAllAlarms = useCallback(async () => {
     try {
-      showToast({ style: Toast.Style.Animated, title: 'Stopping all active alarms...' })
+      showToast({ style: Toast.Style.Animated, title: "Stopping all active alarms..." });
 
-      const stoppedCount = await stopAllAlarms()
+      const stoppedCount = await stopAllAlarms();
 
       showToast({
         style: Toast.Style.Success,
-        title: `Stopped ${stoppedCount} active alarm${stoppedCount !== 1 ? 's' : ''}`
-      })
-      fetchAlarms()
+        title: `Stopped ${stoppedCount} active alarm${stoppedCount !== 1 ? "s" : ""}`,
+      });
+      fetchAlarms();
     } catch (error) {
-      console.error('Error stopping all alarms:', error)
+      console.error("Error stopping all alarms:", error);
       showToast({
         style: Toast.Style.Failure,
-        title: 'Failed to Stop All Alarms',
+        title: "Failed to Stop All Alarms",
         message: String(error),
-      })
+      });
     }
-  }, [fetchAlarms])
+  }, [fetchAlarms]);
 
   // Get alarm title from either title or name property
-  const getAlarmTitle = (alarm: AlarmInfo) => alarm.title || alarm.name || 'Unnamed Alarm'
+  const getAlarmTitle = (alarm: AlarmInfo) => alarm.title || alarm.name || "Unnamed Alarm";
 
   // Handle opening the create alarm command
   const handleCreateAlarm = () => {
-    open('raycast://extensions/codista/alarms/create-alarm')
-  }
+    open("raycast://extensions/codista/alarms/create-alarm");
+  };
 
   return (
     <List isLoading={isLoading} searchBarPlaceholder="Search alarms...">
@@ -273,5 +287,5 @@ export default function ListAlarms() {
         </List.Section>
       )}
     </List>
-  )
-} 
+  );
+}

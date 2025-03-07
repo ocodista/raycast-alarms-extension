@@ -65,6 +65,32 @@ Built using only native macOS technologies:
 - `afplay` for sound playback
 - Pipe-delimited text files for efficient data storage
 
+## Testing
+
+The extension includes a comprehensive test suite to ensure reliability:
+
+```bash
+# Run all tests
+./tests/run-tests.sh
+
+# Run specific test suites individually
+./tests/integration/alarms-test.sh
+./tests/integration/trigger-test.sh
+```
+
+These integration tests verify:
+- Alarm creation and storage
+- Time formatting with leading zeros
+- Alarm listing functionality
+- Alarm removal
+- Multiple alarm management
+- Alarm triggering and cleanup
+
+For running the JSON validation tests, you'll need to have `jq` installed:
+```bash
+brew install jq
+```
+
 ## Requirements
 
 - macOS 10.15+

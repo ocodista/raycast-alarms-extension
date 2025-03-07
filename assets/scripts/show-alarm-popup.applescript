@@ -9,7 +9,7 @@ on run argv
   end if
   
   -- Create a dialog with bell emoji in the title
-  set dialogResult to display dialog alarmTitle buttons {"Stop"} default button "Stop" with title "🔔 Alarm"
+  set dialogResult to display dialog alarmTitle buttons {"Stop"} default button "Stop" with title "⏰ Alarm"
   
   -- Return the result of the dialog
   if button returned of dialogResult is "Stop" then
