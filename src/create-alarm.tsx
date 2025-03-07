@@ -1,16 +1,32 @@
 import React, { useEffect, useState } from 'react'
-import { Action, ActionPanel, Form, showToast, Toast } from '@raycast/api'
+import { Action, ActionPanel, Form, showToast, Toast, popToRoot } from '@raycast/api'
 import fs from 'fs'
 import path from 'path'
 import { spawn, ChildProcess } from 'child_process'
 import os from 'os'
-import { closeMainWindow, showHUD } from "@raycast/api"
 import { Icon } from "@raycast/api"
 
 // Sound options and paths
 const DEFAULT_RINGTONE = "Radial.m4r"
 const RINGTONES_PATH = "/System/Library/PrivateFrameworks/ToneLibrary.framework/Versions/A/Resources/Ringtones"
 const SCRIPT_PATH = `${os.homedir()}/.raycast-alarms/scripts/manage-crontab.sh`
+const LOG_PATH = `${os.homedir()}/.raycast-alarms/logs/extension.log`
+
+// Helper function to log messages to a file
+const logToFile = async (message: string) => {
+  try {
+    const timestamp = new Date().toISOString()
+    const logMessage = `[${timestamp}] ${message}\n`
+
+    // Create the directory if it doesn't exist
+    await fs.promises.mkdir(path.dirname(LOG_PATH), { recursive: true })
+
+    // Append to the log file
+    await fs.promises.appendFile(LOG_PATH, logMessage)
+  } catch (error) {
+    console.error('Failed to write to log file:', error)
+  }
+}
 
 export interface AlarmInfo {
   id: string
@@ -149,41 +165,21 @@ export const getScheduledAlarms = async (): Promise<AlarmInfo[]> => {
 }
 
 export default function CreateAlarm() {
-  const [isLoading, setIsLoading] = useState(false)
-  const [title, setTitle] = useState("")
-  const [scheduledTime, setScheduledTime] = useState<Date>(new Date())
-  const [selectedRingtone, setSelectedRingtone] = useState(DEFAULT_RINGTONE)
-  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
-  const defaultRingtone = DEFAULT_RINGTONE
-  const [minDate, setMinDate] = useState<Date>(() => {
-    // Set minimum date to 1 minute from now
-    const now = new Date()
-    now.setMinutes(now.getMinutes() + 1)
-    now.setSeconds(0)
-    now.setMilliseconds(0)
-    return now
-  })
+  const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [selectedRingtone, setSelectedRingtone] = useState<string>(DEFAULT_RINGTONE)
+  const [scheduledTime, setScheduledTime] = useState<Date | null>(new Date())
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState<boolean>(false)
+  const [alarmTitle, setAlarmTitle] = useState<string>("")
 
-  // Update minDate every minute
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const now = new Date()
-      now.setMinutes(now.getMinutes() + 1)
-      now.setSeconds(0)
-      now.setMilliseconds(0)
-      setMinDate(now)
-
-      // If the current selected time is now in the past, update it
-      if (scheduledTime < now) {
-        setScheduledTime(now)
-      }
-    }, 60000)
-
-    return () => clearInterval(interval)
-  }, [scheduledTime])
+  // Set minDate to now instead of 1 minute from now
+  const minDate = new Date()
+  minDate.setSeconds(0)
+  minDate.setMilliseconds(0)
 
   const handleCreateAlarm = async () => {
     stopPreview()
+
+    await logToFile('handleCreateAlarm called')
 
     if (!scheduledTime) {
       showToast({
@@ -194,83 +190,101 @@ export default function CreateAlarm() {
       return
     }
 
-    setIsLoading(true);
+    // Validate that the scheduled time is in the future
+    const now = new Date()
+    if (scheduledTime <= now) {
+      showToast({
+        style: Toast.Style.Failure,
+        title: "Invalid Time",
+        message: "Alarm time must be in the future",
+      })
+      await logToFile(`Alarm submission rejected: time (${scheduledTime.toISOString()}) is not in the future`)
+      return
+    }
+
+    setIsLoading(true)
 
     try {
-      const scriptPath = `${os.homedir()}/.raycast-alarms/scripts/manage-crontab.sh`;
+      const scriptPath = `${os.homedir()}/.raycast-alarms/scripts/manage-crontab.sh`
+      await logToFile(`Using script path: ${scriptPath}`)
 
       // Check if script exists
       try {
-        await fs.promises.access(scriptPath, fs.constants.X_OK);
+        await fs.promises.access(scriptPath, fs.constants.X_OK)
+        await logToFile('Script exists and is executable')
       } catch (error) {
-        throw new Error(`Script not found or not executable: ${scriptPath}`);
+        await logToFile(`Script not found or not executable: ${scriptPath}`)
+        throw new Error(`Script not found or not executable: ${scriptPath}`)
       }
 
       const alarmId = `raycast_alarm_${Date.now()}`
       const soundPath = getRingtonePath(selectedRingtone)
+      await logToFile(`Selected sound path: ${soundPath}`)
+
+      // Create the crontab entry
       const hours = scheduledTime.getHours()
       const minutes = scheduledTime.getMinutes()
-      const seconds = scheduledTime.getSeconds()
+      // Always set seconds to 0
+      const seconds = 0
 
-      // Use a default title if none is provided
-      const alarmTitle = title.trim() || "Raycast Alarm"
+      await logToFile(`Setting alarm for ${hours}:${minutes}:${seconds}`)
 
-      // Important: Pass arguments separately to ensure proper escaping
-      const { code, stderr } = await execCommand(
-        scriptPath,
-        ['add', alarmId, alarmTitle, hours.toString(), minutes.toString(), seconds.toString(), soundPath]
-      )
+      // Creating the command to add the alarm
+      const command = 'add'
+      const args = [
+        alarmId,
+        alarmTitle || 'Raycast Alarm',
+        hours.toString(),
+        minutes.toString(),
+        seconds.toString(),
+        soundPath,
+      ]
 
-      if (code !== 0) {
-        throw new Error(`Failed to create alarm: ${stderr}`);
+      await logToFile(`Executing command: ${command} with args: ${JSON.stringify(args)}`)
+
+      const result = await execCommand(scriptPath, [command, ...args])
+      await logToFile(`Command result - stdout: ${result.stdout}, stderr: ${result.stderr}, code: ${result.code}`)
+
+      if (result.code !== 0) {
+        throw new Error(`Failed to create alarm: ${result.stderr || result.stdout}`)
       }
 
+      // Display success message
       showToast({
         style: Toast.Style.Success,
-        title: "Alarm Set Successfully",
-        message: `Your alarm will ring at ${formatTime(scheduledTime)}`,
-      });
+        title: "Alarm Created",
+        message: `${alarmTitle || 'Alarm'} set for ${formatTime(scheduledTime)}`,
+      })
 
-      // Reset form
-      setTitle("");
-      setScheduledTime(new Date());
-      setSelectedRingtone(defaultRingtone);
-
-      // Navigate to list
-      await closeMainWindow();
-      await showHUD("Alarm set for " + formatTime(scheduledTime), {});
+      // Close and return to root
+      popToRoot()
     } catch (error) {
-      console.error("Error creating alarm:", error);
+      await logToFile(`Error creating alarm: ${error}`)
+
       showToast({
         style: Toast.Style.Failure,
-        title: "Could Not Create Alarm",
+        title: "Failed to Create Alarm",
         message: String(error),
-      });
+      })
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
+  // Initialize directory when component loads
   useEffect(() => {
-    // Only ensure the script directory exists, don't do anything that could trigger an alarm
     const initializeDirectory = async () => {
       try {
-        // Just check if directory exists, create if needed
-        await fs.promises.mkdir(path.dirname(SCRIPT_PATH), { recursive: true });
+        // Make sure the directory exists
+        await fs.promises.mkdir(`${os.homedir()}/.raycast-alarms/scripts`, { recursive: true })
+        await fs.promises.mkdir(`${os.homedir()}/.raycast-alarms/logs`, { recursive: true })
       } catch (error) {
-        console.error(`Error initializing directory: ${error}`);
+        console.error("Error initializing directories:", error)
+        // Non-fatal error, don't show to user
       }
     };
 
     initializeDirectory();
-
-    // Cleanup on unmount
-    return () => {
-      if (previewSoundProcess) {
-        previewSoundProcess.kill();
-        previewSoundProcess = null;
-      }
-    };
   }, []);
 
   function previewSound(sound: string) {
@@ -324,7 +338,14 @@ export default function CreateAlarm() {
         title="When should it ring?"
         type={Form.DatePicker.Type.DateTime}
         value={scheduledTime}
-        onChange={(newValue) => newValue && setScheduledTime(newValue)}
+        onChange={(newValue) => {
+          if (newValue) {
+            // Force seconds to 0 when user picks a time
+            newValue.setSeconds(0)
+            newValue.setMilliseconds(0)
+            setScheduledTime(newValue)
+          }
+        }}
         min={minDate}
       />
 
@@ -332,8 +353,8 @@ export default function CreateAlarm() {
         id="title"
         title="Title"
         placeholder="What's this alarm for? (optional)"
-        value={title}
-        onChange={setTitle}
+        value={alarmTitle}
+        onChange={setAlarmTitle}
       />
 
       <Form.Separator />
@@ -343,10 +364,6 @@ export default function CreateAlarm() {
         title="Alarm Sound"
         value={selectedRingtone}
         onChange={(newValue) => {
-          // Only preview if actually changing the sound
-          if (newValue !== selectedRingtone) {
-            previewSound(newValue)
-          }
           setSelectedRingtone(newValue)
         }}
       >

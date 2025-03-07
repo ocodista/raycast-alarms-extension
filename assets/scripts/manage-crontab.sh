@@ -11,7 +11,7 @@ BASE_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 # Configuration directory
 CONFIG_DIR="$HOME/.raycast-alarms"
-ALARMS_FILE="$CONFIG_DIR/alarms.json"
+ALARMS_FILE="$CONFIG_DIR/alarms.data"
 CRONTAB_MARKER="#--- RAYCAST ALARMS ---#"
 
 # Ensure config directory exists
@@ -26,7 +26,7 @@ log() {
 
 # Initialize alarms file if it doesn't exist
 if [ ! -f "$ALARMS_FILE" ]; then
-  echo "[]" > "$ALARMS_FILE"
+  touch "$ALARMS_FILE"
 fi
 
 # Function to add an alarm to crontab
@@ -135,52 +135,31 @@ $cron_entry
   
   log "Added alarm: $alarm_id at $hours:$minutes:$seconds - '$title'"
   
-  # Also add to our tracking JSON file
-  # Use temporary file to avoid issues with redirection
-  if command -v jq &> /dev/null; then
-    jq --arg id "$alarm_id" \
-       --arg name "$title" \
-       --arg time "$hours:$minutes:$seconds" \
-       --arg sound "$sound_path" \
-       '. += [{"id": $id, "name": $name, "time": $time, "sound": $sound}]' \
-       "$ALARMS_FILE" > "$CONFIG_DIR/temp_alarms.json"
-    JQ_RESULT=$?
-    log "Added alarm to JSON file, jq exit code: $JQ_RESULT"
-    
-    if [ $JQ_RESULT -ne 0 ]; then
-      log "ERROR: Failed to add alarm to JSON file"
-      echo "ERROR: Failed to add alarm to JSON file"
-    fi
-  else
-    # Fallback method if jq is not available
-    log "WARNING: jq not found, using fallback method to update JSON"
-    
-    # Check if the file is empty or just contains []
-    if [ ! -s "$ALARMS_FILE" ] || [ "$(cat "$ALARMS_FILE")" = "[]" ]; then
-      # Create a new JSON array with one entry
-      echo "[{\"id\": \"$alarm_id\", \"name\": \"$title\", \"time\": \"$hours:$minutes:$seconds\", \"sound\": \"$sound_path\"}]" > "$CONFIG_DIR/temp_alarms.json"
-    else
-      # Remove the closing bracket, add a comma and the new entry, then close the array
-      sed 's/]$/,{"id": "'"$alarm_id"'", "name": "'"$title"'", "time": "'"$hours:$minutes:$seconds"'", "sound": "'"$sound_path"'"}]/' "$ALARMS_FILE" > "$CONFIG_DIR/temp_alarms.json"
-    fi
-    
-    FALLBACK_RESULT=$?
-    log "Added alarm to JSON file using fallback method, exit code: $FALLBACK_RESULT"
-    
-    if [ $FALLBACK_RESULT -ne 0 ]; then
-      log "ERROR: Failed to add alarm to JSON file with fallback method"
-      echo "ERROR: Failed to add alarm to JSON file (jq not installed)"
-      echo "Please install jq using: brew install jq"
-    fi
+  # Add to our tracking file using a simple pipe-delimited format
+  # Format: id|title|time|sound_path
+  
+  # Format time with leading zeros
+  formatted_hours=$(printf "%02d" $hours)
+  formatted_minutes=$(printf "%02d" $minutes)
+  formatted_time="$formatted_hours:$formatted_minutes"
+  
+  # Escape pipes in title and sound path
+  safe_title=$(echo "$title" | sed 's/|/_/g') 
+  safe_sound_path=$(echo "$sound_path" | sed 's/|/_/g')
+  
+  # Add to the data file
+  echo "$alarm_id|$safe_title|$formatted_time|$safe_sound_path" >> "$ALARMS_FILE"
+  DATA_RESULT=$?
+  log "Added alarm to data file, exit code: $DATA_RESULT"
+  
+  if [ $DATA_RESULT -ne 0 ]; then
+    log "ERROR: Failed to add alarm to data file"
+    echo "ERROR: Failed to add alarm to data file"
   fi
   
-  mv "$CONFIG_DIR/temp_alarms.json" "$ALARMS_FILE"
-  MV_RESULT=$?
-  log "Moved temp JSON file to actual JSON file, exit code: $MV_RESULT"
-  
-  # Debug: Check JSON file content
-  log "JSON file content after update:"
-  cat "$ALARMS_FILE" | while read line; do log "JSON: $line"; done
+  # Debug: Show the data file content
+  log "Data file content after update:"
+  cat "$ALARMS_FILE" | while read line; do log "DATA: $line"; done
   
   echo "Alarm added successfully: $title at $hours:$minutes:$seconds"
 }
@@ -189,56 +168,59 @@ $cron_entry
 remove_alarm() {
   alarm_id="$1"
   
+  log "Removing alarm with ID: $alarm_id"
+  
   # Get current crontab
   crontab -l > "$CONFIG_DIR/temp_crontab" 2>/dev/null || echo "" > "$CONFIG_DIR/temp_crontab"
   
+  # Debug: Check if the alarm exists in crontab before removal
+  if grep -q "$alarm_id" "$CONFIG_DIR/temp_crontab"; then
+    log "Found alarm $alarm_id in crontab, proceeding with removal"
+  else
+    log "Warning: Alarm $alarm_id not found in crontab"
+  fi
+  
   # Remove the specific alarm entry
-  sed -i '' "/\"$alarm_id\"/d" "$CONFIG_DIR/temp_crontab"
+  # The alarm ID is always the first parameter to the trigger script
+  sed -i '' "/$alarm_id /d" "$CONFIG_DIR/temp_crontab"
+  
+  # Debug: Verify the alarm is gone
+  if grep -q "$alarm_id" "$CONFIG_DIR/temp_crontab"; then
+    log "ERROR: Failed to remove alarm $alarm_id from crontab"
+  else
+    log "Successfully removed alarm $alarm_id from crontab"
+  fi
   
   # Install updated crontab
   crontab "$CONFIG_DIR/temp_crontab"
+  CRONTAB_RESULT=$?
+  log "Installed updated crontab, exit code: $CRONTAB_RESULT"
+  
+  # Debug: Check crontab content after installation
+  log "Checking crontab content after removal:"
+  crontab -l | grep -A 5 -B 5 "$CRONTAB_MARKER" | while read line; do log "CRONTAB: $line"; done
+  
   rm -f "$CONFIG_DIR/temp_crontab"
   
-  log "Removed alarm: $alarm_id"
-  
-  # Also remove from our tracking JSON file
-  if command -v jq &> /dev/null; then
-    jq --arg id "$alarm_id" 'map(select(.id != $id))' "$ALARMS_FILE" > "$CONFIG_DIR/temp_alarms.json"
-    JQ_RESULT=$?
-    log "Removed alarm from JSON file, jq exit code: $JQ_RESULT"
+  # Remove from tracking file - simply grep for lines not containing the alarm ID
+  if [ -f "$ALARMS_FILE" ]; then
+    # Create a temp file with all lines except the one with alarm_id
+    grep -v "^$alarm_id|" "$ALARMS_FILE" > "$CONFIG_DIR/temp_alarms.data"
+    mv "$CONFIG_DIR/temp_alarms.data" "$ALARMS_FILE"
     
-    if [ $JQ_RESULT -ne 0 ]; then
-      log "ERROR: Failed to remove alarm from JSON file"
-      echo "ERROR: Failed to remove alarm from JSON file"
+    DATA_RESULT=$?
+    log "Removed alarm from data file, exit code: $DATA_RESULT"
+    
+    if [ $DATA_RESULT -ne 0 ]; then
+      log "ERROR: Failed to remove alarm from data file"
+      echo "ERROR: Failed to remove alarm from data file"
     fi
+    
+    # Debug: Check data file content after removal
+    log "Data file content after removal:"
+    cat "$ALARMS_FILE" | while read line; do log "DATA: $line"; done
   else
-    # Fallback method if jq is not available
-    log "WARNING: jq not found, using fallback method to update JSON"
-    
-    # This is a simplistic approach - a proper JSON parser would be better
-    # But for emergency fallback, we'll use grep to filter out the line with the alarm ID
-    grep -v "\"id\": \"$alarm_id\"" "$ALARMS_FILE" > "$CONFIG_DIR/temp_alarms.json"
-    
-    FALLBACK_RESULT=$?
-    log "Removed alarm from JSON file using fallback method, exit code: $FALLBACK_RESULT"
-    
-    if [ $FALLBACK_RESULT -ne 0 ]; then
-      log "ERROR: Failed to remove alarm from JSON file with fallback method"
-      echo "ERROR: Failed to remove alarm from JSON file (jq not installed)"
-      echo "Please install jq using: brew install jq"
-    fi
-  fi
-
-  mv "$CONFIG_DIR/temp_alarms.json" "$ALARMS_FILE"
-  
-  # Clean up any active processes
-  if [ -f "$CONFIG_DIR/active/$alarm_id.pid" ]; then
-    pid=$(cat "$CONFIG_DIR/active/$alarm_id.pid")
-    if ps -p $pid > /dev/null 2>&1; then
-      kill $pid
-      log "Stopped alarm process with PID: $pid"
-    fi
-    rm -f "$CONFIG_DIR/active/$alarm_id.pid"
+    log "Warning: alarms data file not found, nothing to remove"
   fi
   
   echo "Alarm removed successfully: $alarm_id"
@@ -246,187 +228,145 @@ remove_alarm() {
 
 # Function to list all alarms
 list_alarms() {
-  log "Listing alarms from $ALARMS_FILE"
-  
-  if [ ! -f "$ALARMS_FILE" ]; then
-    log "Alarms file not found, returning empty array"
+  if [ ! -f "$ALARMS_FILE" ] || [ ! -s "$ALARMS_FILE" ]; then
+    # Return empty JSON array since that's what the TypeScript code expects
     echo "[]"
-    return
-  fi
-  
-  # Check if file contains valid JSON
-  if command -v jq &> /dev/null; then
-    # Use jq to validate and pretty print
-    if jq -e . "$ALARMS_FILE" > /dev/null 2>&1; then
-      log "File contains valid JSON, returning contents"
-      cat "$ALARMS_FILE"
-    else
-      log "ERROR: Invalid JSON in $ALARMS_FILE, returning empty array"
-      echo "[]"
-    fi
-  else
-    # Without jq, we can't validate, but we can check if it's empty
-    if [ ! -s "$ALARMS_FILE" ]; then
-      log "Empty file, returning empty array"
-      echo "[]"
-    else
-      # Basic check if it starts with [ and ends with ]
-      if grep -q "^\[.*\]$" "$ALARMS_FILE" 2>/dev/null; then
-        log "File appears to contain JSON array, returning contents"
-        cat "$ALARMS_FILE"
-      else
-        log "ERROR: File doesn't appear to contain a JSON array, returning empty array"
-        echo "[]"
-      fi
-    fi
-  fi
-}
-
-# Function to remove all alarms
-remove_all_alarms() {
-  # Get current crontab
-  crontab -l > "$CONFIG_DIR/temp_crontab" 2>/dev/null || echo "" > "$CONFIG_DIR/temp_crontab"
-  
-  # Get section between markers
-  sed -i '' "/$CRONTAB_MARKER/,/#--- DO NOT EDIT THIS SECTION MANUALLY ---#/c\\
-$CRONTAB_MARKER\\
-#--- DO NOT EDIT THIS SECTION MANUALLY ---#
-" "$CONFIG_DIR/temp_crontab"
-  
-  # Install updated crontab
-  crontab "$CONFIG_DIR/temp_crontab"
-  rm -f "$CONFIG_DIR/temp_crontab"
-  
-  log "Removed all alarms"
-  
-  # Clear JSON file
-  echo "[]" > "$ALARMS_FILE"
-  
-  # Kill all active alarm processes
-  for pid_file in "$CONFIG_DIR/active/"*.pid; do
-    if [ -f "$pid_file" ]; then
-      pid=$(cat "$pid_file")
-      if ps -p $pid > /dev/null 2>&1; then
-        kill $pid
-        log "Stopped alarm process with PID: $pid"
-      fi
-      rm -f "$pid_file"
-    fi
-  done
-  
-  echo "All alarms removed successfully"
-}
-
-# Function to stop a ringing alarm
-stop_alarm() {
-  alarm_id="$1"
-  log "Stopping alarm: $alarm_id"
-  
-  # Check if the alarm is active
-  pid_file="$HOME/.raycast-alarms/active/$alarm_id"
-  
-  if [ -f "$pid_file" ]; then
-    # Read the PID from the file
-    pid=$(cat "$pid_file")
-    log "Found PID file with PID: $pid"
-    
-    # Kill the process
-    if ps -p $pid > /dev/null; then
-      kill $pid
-      log "Killed process with PID: $pid"
-      rm -f "$pid_file"
-      echo "Alarm stopped successfully"
-      return 0
-    else
-      log "Process with PID $pid is not running"
-      rm -f "$pid_file"
-      echo "Alarm was not running, removed PID file"
-      return 0
-    fi
-  else
-    log "No active alarm found with ID: $alarm_id"
-    echo "No active alarm found with ID: $alarm_id"
-    return 1
-  fi
-}
-
-# Function to stop all ringing alarms
-stop_all_alarms() {
-  log "Stopping all active alarms"
-  
-  # Find all PID files in the active directory
-  active_dir="$HOME/.raycast-alarms/active"
-  count=0
-  
-  # Check if the directory exists
-  if [ ! -d "$active_dir" ]; then
-    log "Active directory does not exist"
-    echo "Stopped 0 alarm(s)"
     return 0
   fi
   
-  # Loop through all files in the active directory
-  for pid_file in "$active_dir"/*; do
-    if [ -f "$pid_file" ]; then
-      alarm_id=$(basename "$pid_file")
-      log "Found active alarm: $alarm_id"
-      
-      # Read the PID from the file
-      pid=$(cat "$pid_file")
-      
-      # Kill the process
-      if ps -p $pid > /dev/null; then
-        kill $pid
-        log "Killed process with PID: $pid"
-        count=$((count + 1))
-      else
-        log "Process with PID $pid is not running"
-      fi
-      
-      # Remove the PID file
-      rm -f "$pid_file"
+  # Convert our pipe-delimited format to JSON format
+  echo "["
+  first=true
+  while IFS="|" read -r id title time sound; do
+    if [ "$first" = true ]; then
+      first=false
+    else
+      echo ","
     fi
-  done
-  
-  log "Stopped $count alarm(s)"
-  echo "Stopped $count alarm(s)"
-  return 0
+    echo "  {\"id\": \"$id\", \"title\": \"$title\", \"time\": \"$time\", \"sound\": \"$sound\"}"
+  done < "$ALARMS_FILE"
+  echo "]"
 }
 
-# Command line interface
-case "$1" in
-  add)
-    if [ $# -lt 6 ]; then
-      echo "Usage: $0 add <alarm_id> <title> <hours> <minutes> <seconds> <sound_path>"
-      exit 1
+# Function to get all active alarm IDs
+get_active_alarm_ids() {
+  ls -1 "$CONFIG_DIR/active/" 2>/dev/null | grep -v "_loop$" || echo ""
+}
+
+# Function to check if an alarm is active
+is_alarm_active() {
+  local alarm_id="$1"
+  [ -f "$CONFIG_DIR/active/$alarm_id" ]
+}
+
+# Function to kill an active alarm
+kill_alarm() {
+  local alarm_id="$1"
+  local active_file="$CONFIG_DIR/active/$alarm_id"
+  local control_file="$CONFIG_DIR/active/${alarm_id}_loop"
+  
+  if [ -f "$active_file" ]; then
+    pid=$(cat "$active_file")
+    log "Killing alarm $alarm_id (PID: $pid)"
+    
+    # Remove the loop control file to stop any sound loops
+    rm -f "$control_file"
+    
+    # Kill the sound process
+    kill -TERM "$pid" 2>/dev/null || true
+    
+    # Kill any afplay processes related to this alarm
+    pkill -f "afplay.*$alarm_id" 2>/dev/null || true
+    
+    # Remove the active file
+    rm -f "$active_file"
+    
+    echo "Alarm stopped: $alarm_id"
+  else
+    echo "Alarm not active: $alarm_id"
+  fi
+}
+
+# Function to get a list of currently active alarms (those that are ringing)
+list_active_alarms() {
+  active_ids=$(get_active_alarm_ids)
+  
+  if [ -z "$active_ids" ]; then
+    echo "No alarms are currently active (ringing)."
+    return 0
+  fi
+  
+  echo "Active Alarms (currently ringing):"
+  echo "--------------------------------"
+  
+  alarm_number=1
+  for id in $active_ids; do
+    # Try to find alarm info in the JSON file
+    if [ -f "$ALARMS_FILE" ]; then
+      name=$(grep -o "\"name\":\"[^\"]*\"" "$ALARMS_FILE" | grep -A1 "\"id\":\"$id\"" | sed 's/.*"name":"\([^"]*\)".*/\1/' | head -n 1)
+      
+      if [ -n "$name" ]; then
+        echo "$alarm_number) $name (ID: $id)"
+      else
+        echo "$alarm_number) Unknown alarm (ID: $id)"
+      fi
+    else
+      echo "$alarm_number) Alarm ID: $id"
     fi
-    add_alarm "$2" "$3" "$4" "$5" "$6" "$7"
+    
+    alarm_number=$((alarm_number + 1))
+  done
+}
+
+# Function to kill all active alarms
+kill_all_alarms() {
+  active_ids=$(get_active_alarm_ids)
+  
+  if [ -z "$active_ids" ]; then
+    echo "No active alarms to stop."
+    return 0
+  fi
+  
+  for id in $active_ids; do
+    kill_alarm "$id"
+  done
+  
+  echo "All alarms stopped successfully."
+}
+
+# Main script logic
+command="$1"
+shift
+
+case "$command" in
+  "add")
+    add_alarm "$@"
     ;;
-  remove)
-    if [ $# -lt 2 ]; then
-      echo "Usage: $0 remove <alarm_id>"
-      exit 1
-    fi
-    remove_alarm "$2"
+  "remove")
+    remove_alarm "$1"
     ;;
-  list)
+  "list")
     list_alarms
     ;;
-  remove-all)
-    remove_all_alarms
+  "active")
+    list_active_alarms
     ;;
-  stop)
-    if [ $# -lt 2 ]; then
-      echo "Usage: $0 stop <alarm_id>"
-      exit 1
-    fi
-    stop_alarm "$2"
+  "kill")
+    kill_alarm "$1"
     ;;
-  stop-all)
-    stop_all_alarms
+  "killall")
+    kill_all_alarms
     ;;
   *)
-    echo "Usage: $0 {add|remove|list|remove-all|stop|stop-all}"
+    echo "Usage: $0 command [arguments]"
+    echo ""
+    echo "Commands:"
+    echo "  add <alarm_id> <title> <hours> <minutes> <seconds> <sound_path> - Create a new alarm"
+    echo "  remove <alarm_id> - Remove an existing alarm"
+    echo "  list - List all scheduled alarms"
+    echo "  active - List currently active (ringing) alarms"
+    echo "  kill <alarm_id> - Stop an active alarm"
+    echo "  killall - Stop all active alarms"
     exit 1
     ;;
 esac
