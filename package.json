@@ -1,6 +1,6 @@
 {
   "$schema": "https://www.raycast.com/schemas/extension.json",
-  "name": "Alarms",
+  "name": "alarms",
   "title": "Alarms",
   "description": "Create scheduled alarms",
   "icon": "extension-icon.png",
