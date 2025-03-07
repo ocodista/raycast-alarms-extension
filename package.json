@@ -1,8 +1,8 @@
 {
   "$schema": "https://www.raycast.com/schemas/extension.json",
-  "name": "raycast-alarms",
+  "name": "alarms",
   "title": "Alarms",
-  "description": "Create alarms that work even when Raycast is closed",
+  "description": "Create scheduled alarms",
   "icon": "extension-icon.png",
   "author": "ocodista",
   "categories": [
