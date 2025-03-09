@@ -119,7 +119,7 @@ const execCommand = async (
   command: string,
   args: string[]
 ): Promise<{ stdout: string; stderr: string; code: number }> => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     // Only log critical commands (add, remove, stop)
     const shouldLog = command.includes("add") || command.includes("remove") || command.includes("stop");
 
@@ -138,6 +138,10 @@ const execCommand = async (
 
     child.stderr.on("data", (data) => {
       stderr += data.toString();
+    });
+
+    child.on("error", (error) => {
+      reject(error);
     });
 
     child.on("close", (code) => {

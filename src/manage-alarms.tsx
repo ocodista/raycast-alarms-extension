@@ -6,6 +6,7 @@ import os from "os";
 import { open } from "@raycast/api";
 import fs from "fs";
 import { initializeExtension } from "./utils/initialize";
+import { showFailureToast } from "@raycast/utils";
 
 // Path to the manage-crontab.sh script
 const SCRIPT_PATH = `${os.homedir()}/.raycast-alarms/scripts/manage-crontab.sh`;
@@ -36,13 +37,13 @@ const execCommand = async (
   command: string,
   args: string[]
 ): Promise<{ stdout: string; stderr: string; code: number }> => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     // Check if the script exists and is executable
     try {
       fs.accessSync(command, fs.constants.X_OK);
     } catch (error) {
       console.error(`Script not found or not executable: ${command}`);
-      return resolve({ stdout: "", stderr: `Script not found or not executable: ${command}`, code: 1 });
+      return reject(new Error(`Script not found or not executable: ${command}`));
     }
 
     // Execute the command directly
@@ -56,6 +57,10 @@ const execCommand = async (
 
     child.stderr.on("data", (data) => {
       stderr += data.toString();
+    });
+
+    child.on("error", (error) => {
+      reject(error);
     });
 
     child.on("close", (code) => {
@@ -159,10 +164,8 @@ export default function ListAlarms() {
       setAlarms(fetchedAlarms);
     } catch (error) {
       console.error("Error fetching alarms:", error);
-      showToast({
-        style: Toast.Style.Failure,
+      showFailureToast(error, {
         title: "Failed to Load Alarms",
-        message: String(error),
       });
     } finally {
       setIsLoading(false);

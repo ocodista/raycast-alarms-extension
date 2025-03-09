@@ -98,6 +98,7 @@ print_success "Scripts are now executable"
 if [ ! -f "$CONFIG_DIR/alarms.json" ]; then
   print_step "Initializing alarms database"
   echo "[]" > "$CONFIG_DIR/alarms.json"
+  chmod 600 "$CONFIG_DIR/alarms.json"
   print_success "Empty alarms database created"
 else
   print_info "Using existing alarms database"
