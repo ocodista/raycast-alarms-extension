@@ -299,7 +299,6 @@ export default function CreateAlarm() {
         message: `${alarmTitle || "Alarm"} set for ${formatTime(scheduledTime)}`,
       });
 
-      // Close and return to root
       popToRoot();
     } catch (error) {
       await logToFile(`Error creating alarm: ${error}`);
